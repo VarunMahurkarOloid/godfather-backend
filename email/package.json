@@ -1,0 +1,16 @@
+{
+  "name": "godfather-mailer",
+  "version": "1.0.0",
+  "description": "Email notification service for Godfather Office Mafia Game",
+  "main": "godfather_mailer.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.0",
+    "dotenv": "^16.0.0"
+  },
+  "keywords": ["email", "nodemailer", "notifications"],
+  "author": "",
+  "license": "ISC"
+}
