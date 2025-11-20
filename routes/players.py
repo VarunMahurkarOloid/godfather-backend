@@ -1,31 +1,18 @@
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional, List
-import jwt
 import os
 
 from utils.google_client import get_player_by_id, get_all_players, update_player, get_news
 from utils.scoring import recalculate_player_score
+from auth_service import security, get_player_id_from_token
 
 router = APIRouter()
 
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-
-def get_current_player_id(authorization: Optional[str] = Header(None)) -> str:
-    """Extract player ID from JWT token"""
-    if not authorization:
-        raise HTTPException(status_code=401, detail="No authorization token provided")
-
-    try:
-        token = authorization.replace("Bearer ", "")
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload.get("player_id")
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
 @router.get("/{player_id}")
-async def get_player(player_id: str, current_player_id: str = Depends(get_current_player_id)):
+async def get_player(player_id: str, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current_player_id = get_player_id_from_token(credentials)
     """
     Get player data by ID
     """
@@ -44,7 +31,8 @@ async def get_player(player_id: str, current_player_id: str = Depends(get_curren
     return player_data
 
 @router.get("/me/profile")
-async def get_my_profile(current_player_id: str = Depends(get_current_player_id)):
+async def get_my_profile(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current_player_id = get_player_id_from_token(credentials)
     """
     Get current player's profile
     """
@@ -59,21 +47,25 @@ async def get_my_profile(current_player_id: str = Depends(get_current_player_id)
     return player_data
 
 @router.get("/")
-async def get_all_players_list(current_player_id: str = Depends(get_current_player_id)):
+async def get_all_players_list(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current_player_id = get_player_id_from_token(credentials)
     """
-    Get list of all players (excluding passwords)
+    Get list of all players (excluding passwords and sensitive data)
     """
     players = get_all_players()
 
-    # Remove passwords and return only basic info
+    # Remove passwords and return player info
     players_data = [
         {
             "player_id": p.get("player_id"),
             "name": p.get("name"),
             "role": p.get("role"),
+            "assigned_role": p.get("assigned_role"),
             "family": p.get("family"),
+            "balance": p.get("balance", 0),
             "alive": p.get("alive", True),
-            "individual_score": p.get("individual_score", 0)
+            "individual_score": p.get("individual_score", 0),
+            "email": p.get("email")
         }
         for p in players
     ]
@@ -90,10 +82,13 @@ class LeaderboardPlayer(BaseModel):
     kills_made: int
 
 @router.get("/leaderboard/top", response_model=List[LeaderboardPlayer])
-async def get_leaderboard(limit: int = 10):
+async def get_leaderboard(limit: int = 10, credentials: HTTPAuthorizationCredentials = Depends(security)):
     """
     Get top players by individual score
     """
+    # Verify authentication
+    get_player_id_from_token(credentials)
+
     players = get_all_players()
 
     # Filter alive players only
@@ -120,7 +115,8 @@ async def get_leaderboard(limit: int = 10):
     ]
 
 @router.post("/{player_id}/update-score")
-async def update_player_score(player_id: str, current_player_id: str = Depends(get_current_player_id)):
+async def update_player_score(player_id: str, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current_player_id = get_player_id_from_token(credentials)
     """
     Recalculate and update a player's score
     """
@@ -142,7 +138,8 @@ async def update_player_score(player_id: str, current_player_id: str = Depends(g
     }
 
 @router.get("/news/all")
-async def get_all_news(current_player_id: str = Depends(get_current_player_id)):
+async def get_all_news(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current_player_id = get_player_id_from_token(credentials)
     """
     Get all news/announcements (public access for all authenticated players)
     """
@@ -154,7 +151,8 @@ async def get_all_news(current_player_id: str = Depends(get_current_player_id)):
     }
 
 @router.post("/me/mark-dead")
-async def mark_player_dead(current_player_id: str = Depends(get_current_player_id)):
+async def mark_player_dead(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current_player_id = get_player_id_from_token(credentials)
     """
     Mark the current player as dead
     """

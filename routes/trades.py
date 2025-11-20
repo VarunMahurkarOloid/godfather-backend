@@ -1,28 +1,15 @@
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional
-import jwt
-import os
 
 from utils.google_client import get_player_by_id, update_player, add_trade
 from utils.scoring import recalculate_player_score
 
+# Import centralized auth
+from auth_service import security, get_player_id_from_token
+
 router = APIRouter()
-
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-
-def get_current_player_id(authorization: Optional[str] = Header(None)) -> int:
-    """Extract player ID from JWT token"""
-    if not authorization:
-        raise HTTPException(status_code=401, detail="No authorization token provided")
-
-    try:
-        token = authorization.replace("Bearer ", "")
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload.get("player_id")
-    except jwt.JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
 
 class TransferMoneyRequest(BaseModel):
     to_player_id: int
@@ -30,7 +17,8 @@ class TransferMoneyRequest(BaseModel):
     message: Optional[str] = None
 
 @router.post("/transfer-money")
-async def transfer_money(request: TransferMoneyRequest, current_player_id: int = Depends(get_current_player_id)):
+async def transfer_money(request: TransferMoneyRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current_player_id = get_player_id_from_token(credentials)
     """
     Transfer money from current player to another player
     """
@@ -94,7 +82,8 @@ async def transfer_money(request: TransferMoneyRequest, current_player_id: int =
     }
 
 @router.get("/history")
-async def get_trade_history(current_player_id: int = Depends(get_current_player_id)):
+async def get_trade_history(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current_player_id = get_player_id_from_token(credentials)
     """
     Get trade history for current player
     """
@@ -127,7 +116,8 @@ async def get_trade_history(current_player_id: int = Depends(get_current_player_
         }
 
 @router.get("/all")
-async def get_all_trades(current_player_id: int = Depends(get_current_player_id)):
+async def get_all_trades(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current_player_id = get_player_id_from_token(credentials)
     """
     Get all trades (public ledger)
     """

@@ -1,29 +1,17 @@
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 from typing import Optional, List
-import jwt
-import os
 
 from utils.google_client import get_families, get_all_players
 
+# Import centralized auth
+from auth_service import security, get_player_id_from_token
+
 router = APIRouter()
 
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-
-def get_current_player_id(authorization: Optional[str] = Header(None)) -> str:
-    """Extract player ID from JWT token"""
-    if not authorization:
-        raise HTTPException(status_code=401, detail="No authorization token provided")
-
-    try:
-        token = authorization.replace("Bearer ", "")
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload.get("player_id")
-    except jwt.JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
 @router.get("/")
-async def get_all_families(current_player_id: str = Depends(get_current_player_id)):
+async def get_all_families(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current_player_id = get_player_id_from_token(credentials)
     """
     Get all families with their stats
     """
@@ -42,7 +30,8 @@ async def get_all_families(current_player_id: str = Depends(get_current_player_i
     }
 
 @router.get("/{family_name}")
-async def get_family(family_name: str, current_player_id: str = Depends(get_current_player_id)):
+async def get_family(family_name: str, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current_player_id = get_player_id_from_token(credentials)
     """
     Get details of a specific family
     """
@@ -55,7 +44,8 @@ async def get_family(family_name: str, current_player_id: str = Depends(get_curr
     return family
 
 @router.get("/{family_name}/members")
-async def get_family_members(family_name: str, current_player_id: str = Depends(get_current_player_id)):
+async def get_family_members(family_name: str, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current_player_id = get_player_id_from_token(credentials)
     """
     Get all members of a specific family
     """
@@ -94,7 +84,8 @@ async def get_family_members(family_name: str, current_player_id: str = Depends(
     }
 
 @router.get("/leaderboard/top")
-async def get_family_leaderboard(limit: int = 10, current_player_id: str = Depends(get_current_player_id)):
+async def get_family_leaderboard(limit: int = 10, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current_player_id = get_player_id_from_token(credentials)
     """
     Get top families by total money or influence
     """
@@ -113,7 +104,8 @@ async def get_family_leaderboard(limit: int = 10, current_player_id: str = Depen
     }
 
 @router.get("/my/family")
-async def get_my_family(current_player_id: str = Depends(get_current_player_id)):
+async def get_my_family(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    current_player_id = get_player_id_from_token(credentials)
     """
     Get current player's family information
     """

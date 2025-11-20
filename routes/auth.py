@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from typing import Optional
 import jwt
+from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 from datetime import datetime, timedelta
 import os
 import uuid
@@ -13,11 +14,15 @@ from utils.google_client import (
     update_score
 )
 
-router = APIRouter()
+# Import centralized auth functions
+from auth_service import (
+    create_access_token,
+    create_refresh_token,
+    refresh_access_token,
+    decode_token
+)
 
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 hours
+router = APIRouter()
 
 class LoginRequest(BaseModel):
     email: Optional[str] = None
@@ -27,18 +32,18 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str
     player: dict
     is_first_login: bool = False
     assigned_role: Optional[str] = None
 
-def create_access_token(data: dict):
-    """Create JWT access token"""
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+class RefreshResponse(BaseModel):
+    access_token: str
+    token_type: str
 
 @router.post("/login")
 async def login(request: LoginRequest):
@@ -74,13 +79,14 @@ async def login(request: LoginRequest):
                 detail="Admin must login with 'Godfather' role"
             )
 
-        access_token = create_access_token(
-            data={
-                "player_id": "admin-uuid",
-                "email": ADMIN_USERNAME,
-                "role": "Godfather"
-            }
-        )
+        token_data = {
+            "player_id": "admin-uuid",
+            "email": ADMIN_USERNAME,
+            "role": "Godfather"
+        }
+
+        access_token = create_access_token(data=token_data)
+        refresh_token = create_refresh_token(data=token_data)
 
         admin_player = {
             "player_id": "admin-uuid",
@@ -95,6 +101,7 @@ async def login(request: LoginRequest):
 
         return {
             "access_token": access_token,
+            "refresh_token": refresh_token,
             "token_type": "bearer",
             "player": admin_player,
             "is_first_login": False
@@ -189,21 +196,23 @@ async def login(request: LoginRequest):
                 detail=f"Role mismatch. You are registered as '{stored_role}'. Please select the correct role."
             )
 
-    # Create access token with UUID, email, role, and family
-    access_token = create_access_token(
-        data={
-            "player_id": player["player_id"],
-            "email": player.get("email") or user_email,
-            "role": player.get("role"),
-            "family": player.get("family")
-        }
-    )
+    # Create both access and refresh tokens with UUID, email, role, and family
+    token_data = {
+        "player_id": player["player_id"],
+        "email": player.get("email") or user_email,
+        "role": player.get("role"),
+        "family": player.get("family")
+    }
+
+    access_token = create_access_token(data=token_data)
+    refresh_token = create_refresh_token(data=token_data)
 
     # Remove password from response
     player_data = {k: v for k, v in player.items() if k != "password"}
 
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "player": player_data,
         "is_first_login": False
@@ -215,7 +224,7 @@ async def verify_token(token: str):
     Verify if a token is valid and return player info
     """
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = decode_token(token)
         player_id = payload.get("player_id")
 
         # Get current player data
@@ -230,13 +239,35 @@ async def verify_token(token: str):
                 }
 
         return {"valid": True, "player_id": player_id}
-    except jwt.ExpiredSignatureError:
+    except HTTPException:
+        # Re-raise HTTPException from decode_token
+        raise
+
+@router.post("/refresh", response_model=RefreshResponse)
+async def refresh(request: RefreshRequest):
+    """
+    Refresh access token using a valid refresh token
+
+    Args:
+        request: RefreshRequest containing refresh_token
+
+    Returns:
+        New access token
+
+    Raises:
+        HTTPException: If refresh token is invalid or expired
+    """
+    try:
+        new_access_token = refresh_access_token(request.refresh_token)
+        return {
+            "access_token": new_access_token,
+            "token_type": "bearer"
+        }
+    except HTTPException:
+        # Re-raise HTTPException from refresh_access_token
+        raise
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired"
-        )
-    except jwt.JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token"
+            detail=f"Failed to refresh token: {str(e)}"
         )

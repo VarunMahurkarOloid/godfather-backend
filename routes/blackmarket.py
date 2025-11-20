@@ -1,8 +1,7 @@
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional, List
-import jwt
-import os
 import json
 from datetime import datetime
 import pytz
@@ -10,43 +9,10 @@ import pytz
 from utils.google_client import get_player_by_id, update_player, get_sheet, is_admin
 from utils.scoring import recalculate_player_score
 
+# Import centralized auth
+from auth_service import security, get_player_from_token
+
 router = APIRouter()
-
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-
-def get_current_player(authorization: Optional[str] = Header(None)):
-    """Extract player info from JWT token"""
-    if not authorization:
-        raise HTTPException(status_code=401, detail="No authorization token provided")
-
-    try:
-        token = authorization.replace("Bearer ", "")
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        player_id = payload.get("player_id")
-
-        # Handle admin special case
-        if player_id == "admin-uuid":
-            ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "varun.mahurkar@oloid.ai")
-            return {
-                "player_id": "admin-uuid",
-                "name": "Varun Mahurkar (Godfather)",
-                "email": ADMIN_USERNAME,
-                "role": "Godfather",
-                "family": "Administration",
-                "balance": 999999999,
-                "alive": True,
-                "is_admin": True
-            }
-
-        # Get full player data
-        player = get_player_by_id(player_id)
-        if not player:
-            raise HTTPException(status_code=404, detail="Player not found")
-
-        return player
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
 
 def is_market_open():
     """Check if black market is open (11:11 PM IST)"""
@@ -64,7 +30,8 @@ def get_blackmarket_sheet():
     return get_sheet("market")
 
 @router.get("/offers")
-async def get_offers(player: dict = Depends(get_current_player)):
+async def get_offers(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    player = get_player_from_token(credentials)
     """
     Get all black market offers
     Players can see offers anytime, but can only purchase when market is open
@@ -105,7 +72,8 @@ async def get_offers(player: dict = Depends(get_current_player)):
         }
 
 @router.post("/purchase/{offer_id}")
-async def purchase_offer(offer_id: int, player: dict = Depends(get_current_player)):
+async def purchase_offer(offer_id: int, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    player = get_player_from_token(credentials)
     """
     Purchase an item from the black market
     Only works when market is open
@@ -197,7 +165,8 @@ class CreateOfferRequest(BaseModel):
     quantity_available: int = 1
 
 @router.post("/admin/create-offer")
-async def create_offer(request: CreateOfferRequest, player: dict = Depends(get_current_player)):
+async def create_offer(request: CreateOfferRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    player = get_player_from_token(credentials)
     """
     Create a new black market offer (Admin only)
     """
@@ -240,7 +209,8 @@ async def create_offer(request: CreateOfferRequest, player: dict = Depends(get_c
         raise HTTPException(status_code=500, detail=f"Failed to create offer: {str(e)}")
 
 @router.delete("/admin/delete-offer/{offer_id}")
-async def delete_offer(offer_id: int, player: dict = Depends(get_current_player)):
+async def delete_offer(offer_id: int, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    player = get_player_from_token(credentials)
     """
     Delete a black market offer (Admin only)
     """
@@ -276,7 +246,8 @@ async def delete_offer(offer_id: int, player: dict = Depends(get_current_player)
         raise HTTPException(status_code=500, detail=f"Failed to delete offer: {str(e)}")
 
 @router.get("/admin/all-offers")
-async def get_all_offers_admin(player: dict = Depends(get_current_player)):
+async def get_all_offers_admin(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    player = get_player_from_token(credentials)
     """
     Get all black market offers with full details (Admin only)
     """

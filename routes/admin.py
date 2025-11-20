@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional, List
-import jwt
 import os
 
 from utils.google_client import (
@@ -11,31 +11,9 @@ from utils.google_client import (
 )
 from utils.scoring import recalculate_player_score
 from utils.email_notification_service import godfather_email_service
+from auth_service import security, verify_admin_from_token
 
 router = APIRouter()
-
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-
-def verify_admin(authorization: Optional[str] = Header(None)) -> bool:
-    """Verify that the request is from an admin"""
-    if not authorization:
-        raise HTTPException(status_code=401, detail="No authorization token provided")
-
-    try:
-        token = authorization.replace("Bearer ", "")
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-
-        # Check if user is admin (admin-uuid, player_id 0, role "Godfather" or "admin")
-        player_id = payload.get("player_id")
-        role = payload.get("role", "")
-
-        if player_id == "admin-uuid" or player_id == 0 or role in ["Godfather", "admin"]:
-            return True
-
-        raise HTTPException(status_code=403, detail="Admin access required")
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
 
 class UpdateMoneyRequest(BaseModel):
     player_id: str  # Can be UUID string or numeric ID
@@ -43,7 +21,8 @@ class UpdateMoneyRequest(BaseModel):
     reason: Optional[str] = None
 
 @router.post("/update-money")
-async def update_money(request: UpdateMoneyRequest, is_admin: bool = Depends(verify_admin)):
+async def update_money(request: UpdateMoneyRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Admin endpoint to add or subtract money from a player
     """
@@ -86,7 +65,8 @@ class UpdatePlayerStatsRequest(BaseModel):
     alive: Optional[bool] = None
 
 @router.post("/update-stats")
-async def update_player_stats(request: UpdatePlayerStatsRequest, is_admin: bool = Depends(verify_admin)):
+async def update_player_stats(request: UpdatePlayerStatsRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Admin endpoint to update player stats
     """
@@ -134,7 +114,8 @@ class UpdateItemsRequest(BaseModel):
     items: List[str]
 
 @router.post("/update-items")
-async def update_player_items(request: UpdateItemsRequest, is_admin: bool = Depends(verify_admin)):
+async def update_player_items(request: UpdateItemsRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Admin endpoint to update player items
     """
@@ -165,7 +146,8 @@ class PublishNewsRequest(BaseModel):
     message: str
 
 @router.post("/publish-news")
-async def publish_news(request: PublishNewsRequest, is_admin: bool = Depends(verify_admin)):
+async def publish_news(request: PublishNewsRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Admin endpoint to publish news/announcements
     """
@@ -178,7 +160,8 @@ async def publish_news(request: PublishNewsRequest, is_admin: bool = Depends(ver
     }
 
 @router.get("/news")
-async def get_all_news(is_admin: bool = Depends(verify_admin)):
+async def get_all_news(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Get all news (admin view with more details)
     """
@@ -189,8 +172,26 @@ async def get_all_news(is_admin: bool = Depends(verify_admin)):
         "total": len(news)
     }
 
+@router.get("/players")
+async def get_all_players_admin(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
+    """
+    Get all players with full data (admin only)
+    Returns complete player information including passwords removed
+    """
+    players = get_all_players()
+
+    # Remove passwords but keep all other fields
+    players_data = [
+        {k: v for k, v in p.items() if k != "password"}
+        for p in players
+    ]
+
+    return players_data
+
 @router.get("/dashboard")
-async def admin_dashboard(is_admin: bool = Depends(verify_admin)):
+async def admin_dashboard(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Get admin dashboard statistics
     """
@@ -217,7 +218,8 @@ class EliminatePlayerRequest(BaseModel):
     reason: Optional[str] = None
 
 @router.post("/eliminate-player")
-async def eliminate_player(request: EliminatePlayerRequest, is_admin: bool = Depends(verify_admin)):
+async def eliminate_player(request: EliminatePlayerRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Admin endpoint to eliminate a player from the game
     """
@@ -239,7 +241,8 @@ class RevivePlayerRequest(BaseModel):
     player_id: int
 
 @router.post("/revive-player")
-async def revive_player(request: RevivePlayerRequest, is_admin: bool = Depends(verify_admin)):
+async def revive_player(request: RevivePlayerRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Admin endpoint to revive an eliminated player
     """
@@ -257,7 +260,8 @@ async def revive_player(request: RevivePlayerRequest, is_admin: bool = Depends(v
     }
 
 @router.post("/populate-spreadsheet")
-async def populate_spreadsheet(is_admin: bool = Depends(verify_admin)):
+async def populate_spreadsheet(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Admin endpoint to populate the Google Spreadsheet with dummy data
     WARNING: This will clear existing data and add 10 dummy users
@@ -282,7 +286,8 @@ class AddPlayerRequest(BaseModel):
     items: str = "[]"
 
 @router.post("/add-player")
-async def add_new_player(request: AddPlayerRequest, is_admin: bool = Depends(verify_admin)):
+async def add_new_player(request: AddPlayerRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Admin endpoint to add a new player to the spreadsheet
     """
@@ -297,7 +302,8 @@ class AssignRoleRequest(BaseModel):
     balance: int = 0
 
 @router.post("/assign-role")
-async def assign_role(request: AssignRoleRequest, is_admin: bool = Depends(verify_admin)):
+async def assign_role(request: AssignRoleRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Admin endpoint to assign role and optionally family to a player
     Role is required, family is optional
@@ -353,7 +359,8 @@ class AddMissionRequest(BaseModel):
     completed: bool = False
 
 @router.post("/add-mission")
-async def add_new_mission(request: AddMissionRequest, is_admin: bool = Depends(verify_admin)):
+async def add_new_mission(request: AddMissionRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Admin endpoint to add a new mission to the spreadsheet
     """
@@ -393,7 +400,8 @@ async def add_new_mission(request: AddMissionRequest, is_admin: bool = Depends(v
         raise HTTPException(status_code=500, detail=result.get("message", "Failed to create mission"))
 
 @router.delete("/clear-missions")
-async def clear_all_missions(is_admin: bool = Depends(verify_admin)):
+async def clear_all_missions(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Admin endpoint to clear all missions from the spreadsheet
     """
@@ -416,14 +424,16 @@ game_state = {
 }
 
 @router.get("/game-state")
-async def get_game_state(is_admin: bool = Depends(verify_admin)):
+async def get_game_state(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Get current game state (day, unlock time)
     """
     return game_state
 
 @router.post("/set-game-day")
-async def set_game_day(day: int, is_admin: bool = Depends(verify_admin)):
+async def set_game_day(day: int, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Set the current game day
     """
@@ -435,7 +445,8 @@ async def set_game_day(day: int, is_admin: bool = Depends(verify_admin)):
     }
 
 @router.post("/set-unlock-hour")
-async def set_unlock_hour(hour: int, is_admin: bool = Depends(verify_admin)):
+async def set_unlock_hour(hour: int, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Set the mission unlock hour (0-23)
     """
@@ -461,7 +472,8 @@ class MissionUnlockEmailRequest(BaseModel):
     recipient_type: str = "test"  # "test" or "all"
 
 @router.post("/send-day-start-email")
-async def send_day_start_email(request: DayStartEmailRequest, is_admin: bool = Depends(verify_admin)):
+async def send_day_start_email(request: DayStartEmailRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Send day start reminder email to test or all users based on recipient_type
     """
@@ -496,7 +508,8 @@ async def send_day_start_email(request: DayStartEmailRequest, is_admin: bool = D
         raise HTTPException(status_code=500, detail=f"Failed to send emails: {str(e)}")
 
 @router.post("/send-mission-unlock-email")
-async def send_mission_unlock_email(request: MissionUnlockEmailRequest, is_admin: bool = Depends(verify_admin)):
+async def send_mission_unlock_email(request: MissionUnlockEmailRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Send mission unlock reminder email to test or all users based on recipient_type
     """
@@ -533,7 +546,8 @@ async def send_mission_unlock_email(request: MissionUnlockEmailRequest, is_admin
         raise HTTPException(status_code=500, detail=f"Failed to send emails: {str(e)}")
 
 @router.post("/send-blackmarket-email")
-async def send_blackmarket_email(request: EmailReminderRequest, is_admin: bool = Depends(verify_admin)):
+async def send_blackmarket_email(request: EmailReminderRequest, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    verify_admin_from_token(credentials)
     """
     Send black market reminder email to test or all users based on recipient_type (5 mins before opening)
     """

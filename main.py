@@ -1,18 +1,13 @@
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
-from typing import Optional, List
 from contextlib import asynccontextmanager
-import jwt
-from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
-from routes import auth, missions, players, trades, families, admin, blackmarket, debug
+from routes import auth, missions, players, trades, families, admin, blackmarket
 from utils.google_client import init_sheets
 
 @asynccontextmanager
@@ -24,27 +19,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="The Godfather: Office Mafia API", lifespan=lifespan)
 
-# CORS middleware
-frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
-allowed_origins = [
-    frontend_url,
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "https://godfather-oloid.vercel.app"
-]
-
+# CORS middleware - allow all origins for development
+# In production, ngrok tunnels are temporary and Vercel domains may vary
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_origins=["*"],  # Allow all origins for flexibility with ngrok and Vercel
+    allow_credentials=False,  # Set to False when using wildcard origins
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Security
-security = HTTPBearer()
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
 
 @app.get("/")
 async def root():
@@ -62,7 +45,7 @@ app.include_router(trades.router, prefix="/trades", tags=["Trades"])
 app.include_router(families.router, prefix="/families", tags=["Families"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 app.include_router(blackmarket.router, prefix="/blackmarket", tags=["Black Market"])
-app.include_router(debug.router, prefix="/debug", tags=["Debug"])
+# Debug router removed for production security
 
 if __name__ == "__main__":
     import uvicorn

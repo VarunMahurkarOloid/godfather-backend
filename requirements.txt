@@ -1,7 +1,6 @@
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
 pydantic==2.9.0
-python-jose[cryptography]==3.3.0
 PyJWT==2.8.0
 gspread==6.1.2
 oauth2client==4.1.3

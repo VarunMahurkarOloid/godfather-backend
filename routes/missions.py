@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional, List
-import jwt
 import os
 
 from utils.google_client import (
@@ -9,46 +9,13 @@ from utils.google_client import (
     get_player_by_id, update_player, is_admin, update_score
 )
 from utils.scoring import recalculate_player_score
+from auth_service import security, get_player_from_token
 
 router = APIRouter()
 
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-
-def get_current_player(authorization: Optional[str] = Header(None)):
-    """Extract player info from JWT token"""
-    if not authorization:
-        raise HTTPException(status_code=401, detail="No authorization token provided")
-
-    try:
-        token = authorization.replace("Bearer ", "")
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        player_id = payload.get("player_id")
-        email = payload.get("email")
-
-        # Handle admin/godfather
-        if player_id == "admin-uuid" or email == "godfather" or email == "varun.mahurkar@oloid.ai":
-            import os
-            ADMIN_EMAIL = os.getenv("ADMIN_USERNAME", "varun.mahurkar@oloid.ai")
-            return {
-                "player_id": "admin-uuid",
-                "email": ADMIN_EMAIL,
-                "role": "Godfather",
-                "family": "Administration",
-                "is_admin": True
-            }
-
-        # Get full player data by UUID
-        player = get_player_by_id(player_id)
-        if not player:
-            raise HTTPException(status_code=404, detail="Player not found")
-
-        return player
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
 @router.get("/today")
-async def get_today_missions(player: dict = Depends(get_current_player)):
+async def get_today_missions(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    player = get_player_from_token(credentials)
     """
     Get today's missions for the current player (role-based filtering)
     Missions unlock at 9 AM based on the game day
@@ -120,8 +87,9 @@ async def get_today_missions(player: dict = Depends(get_current_player)):
 @router.get("/all")
 async def get_all_missions_for_player(
     day: Optional[int] = None,
-    player: dict = Depends(get_current_player)
+    credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
+    player = get_player_from_token(credentials)
     """
     Get all missions visible to current player (filtered by role/family and current game day)
     """
@@ -152,7 +120,8 @@ async def get_all_missions_for_player(
     }
 
 @router.get("/{mission_id}")
-async def get_mission(mission_id: int, player: dict = Depends(get_current_player)):
+async def get_mission(mission_id: int, credentials: HTTPAuthorizationCredentials = Depends(security)):
+    player = get_player_from_token(credentials)
     """
     Get a specific mission by ID (if player has access)
     """
@@ -184,8 +153,9 @@ class CompleteMissionRequest(BaseModel):
 @router.post("/complete")
 async def complete_mission(
     request: CompleteMissionRequest,
-    player: dict = Depends(get_current_player)
+    credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
+    player = get_player_from_token(credentials)
     """
     Mark a mission as completed and update player stats
     Admin can complete missions for any player
@@ -281,8 +251,9 @@ class CreateMissionRequest(BaseModel):
 @router.post("/create")
 async def create_mission(
     request: CreateMissionRequest,
-    player: dict = Depends(get_current_player)
+    credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
+    player = get_player_from_token(credentials)
     """
     Create a new mission (Admin or Don only)
     """
@@ -340,7 +311,8 @@ async def create_mission(
         raise HTTPException(status_code=500, detail=result.get("message"))
 
 @router.get("/admin/all-missions")
-async def get_all_missions_admin(player: dict = Depends(get_current_player)):
+async def get_all_missions_admin(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    player = get_player_from_token(credentials)
     """
     Get all missions (admin only)
     """
