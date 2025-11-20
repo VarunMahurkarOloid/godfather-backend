@@ -2,7 +2,6 @@ services:
   - type: web
     name: godfather-backend
     env: python
-    region: oregon
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
@@ -27,5 +26,3 @@ services:
         sync: false
       - key: GOOGLE_CREDENTIALS
         sync: false
-      - key: PYTHON_VERSION
-        value: 3.11.0
