@@ -25,9 +25,17 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="The Godfather: Office Mafia API", lifespan=lifespan)
 
 # CORS middleware
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+allowed_origins = [
+    frontend_url,
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://godfather-oloid.vercel.app"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your frontend URL
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -19,17 +19,26 @@ def init_sheets():
             'https://www.googleapis.com/auth/drive'
         ]
 
-        # Check if credentials file exists
-        creds_path = os.getenv("GOOGLE_CREDENTIALS_PATH", "cred.json")
+        # Try to get credentials from environment variable first (for Vercel deployment)
+        google_creds_json = os.getenv("GOOGLE_CREDENTIALS")
 
-        if not os.path.exists(creds_path):
-            print(f"Warning: Credentials file not found at {creds_path}")
-            print("Using mock data mode. Create cred.json to connect to Google Sheets.")
-            return None
+        if google_creds_json:
+            # Use credentials from environment variable
+            creds_dict = json.loads(google_creds_json)
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            sheet_client = gspread.authorize(creds)
+        else:
+            # Fall back to credentials file (for local development)
+            creds_path = os.getenv("GOOGLE_CREDENTIALS_PATH", "cred.json")
 
-        # Authenticate
-        creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, scope)
-        sheet_client = gspread.authorize(creds)
+            if not os.path.exists(creds_path):
+                print(f"Warning: Credentials file not found at {creds_path}")
+                print("Using mock data mode. Create cred.json to connect to Google Sheets.")
+                return None
+
+            # Authenticate
+            creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, scope)
+            sheet_client = gspread.authorize(creds)
 
         # Open the spreadsheet
         sheet_url = os.getenv("SPREADSHEET_URL", "")
