@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-from routes import auth, missions, players, trades, families, admin, blackmarket
+from routes import auth, missions, players, trades, families, admin, blackmarket, debug
 from utils.google_client import init_sheets
 
 @asynccontextmanager
@@ -62,6 +62,7 @@ app.include_router(trades.router, prefix="/trades", tags=["Trades"])
 app.include_router(families.router, prefix="/families", tags=["Families"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 app.include_router(blackmarket.router, prefix="/blackmarket", tags=["Black Market"])
+app.include_router(debug.router, prefix="/debug", tags=["Debug"])
 
 if __name__ == "__main__":
     import uvicorn
