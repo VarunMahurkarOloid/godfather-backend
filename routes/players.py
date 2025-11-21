@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Union, Any
 import os
 
 from utils.google_client import get_player_by_id, get_all_players, update_player, get_news
@@ -36,6 +36,23 @@ async def get_my_profile(credentials: HTTPAuthorizationCredentials = Depends(sec
     """
     Get current player's profile
     """
+    # Handle Godfather/Admin special case
+    if current_player_id == "admin-uuid":
+        import os
+        from auth_service import get_current_user_from_token
+        payload = get_current_user_from_token(credentials)
+
+        return {
+            "player_id": "admin-uuid",
+            "name": "Varun Mahurkar (Godfather)",
+            "email": payload.get("email"),
+            "role": "Godfather",
+            "family": "Administration",
+            "balance": 999999999,
+            "alive": True,
+            "is_admin": True
+        }
+
     player = get_player_by_id(current_player_id)
 
     if not player:
@@ -73,7 +90,7 @@ async def get_all_players_list(credentials: HTTPAuthorizationCredentials = Depen
     return players_data
 
 class LeaderboardPlayer(BaseModel):
-    player_id: int
+    player_id: Union[str, int, Any]  # Can be UUID string or int
     name: str
     family: str
     individual_score: float
@@ -103,11 +120,11 @@ async def get_leaderboard(limit: int = 10, credentials: HTTPAuthorizationCredent
 
     return [
         {
-            "player_id": p.get("player_id"),
-            "name": p.get("name"),
-            "family": p.get("family"),
+            "player_id": p.get("player_id", ""),
+            "name": p.get("name", "Unknown"),
+            "family": p.get("family", "None"),
             "individual_score": float(p.get("individual_score", 0)),
-            "money": float(p.get("money", 0)),
+            "money": float(p.get("balance", p.get("money", 0))),  # Try balance first, fallback to money
             "missions_completed": int(p.get("missions_completed", 0)),
             "kills_made": int(p.get("kills_made", 0))
         }
